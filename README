@@ -1,0 +1,84 @@
+Online Stock Quotes System:
+---------------------------
+A simple online stock quote service/system. It allows users/client to get stock quotes from the broker. The exchange service can be used to add, remove or update stock symbols in different stock exchanges. Since the broker, exchange and client systems are standalone components, there is a lookup server that help each component discover other services that are online. 
+ 
+Please check the diagram (Schematic.jpeg) to get an idea of the constituent components and their interaction with each other.
+
+System currently has to stock exchanges: nasdaq and tse. More can easily be added by adding their respective stock quote files and executing their respective broker and exchange servers. 
+
+Client:
+-------
+The client obtains the symbol from user input, queries the OnlineBroker, and outputs the result. Here the user command is simply the stock symbol. The client reflects its readiness for accepting a new command by prompting ’>’. 
+A typical session is as follows:
+
+[user]% ./client.sh localhost 8000
+Enter command, symbol or x to exit:
+> local tsetse as local.> MSFTQuote from broker: 28> SUNWQuote from broker: 5 
+> ORCLQuote from broker: 16 
+> ATYQuote from broker: 0 
+> local nasdaqnasdaq as local.> MSFTQuote from broker: 28 
+> RIMQuote from broker: 1 
+>x
+[user]% 
+
+Exchange:
+---------
+An exchange is used to update, remove and add symbols to a particular exchange via simple commands, such as:
+[user]% ./exchange.sh localhost 7777Enter command or quit  for exit:> add EMCEMC added.> update EMC 4EMC updated to 4.> add SUNWSUNW exists.> remove SUNWSUNW removed.> update SUNW 19 SUNW invalid.> remove SUNWSUNW invalid.> update MSFT 709 MSFT out of range. >x[user]% 
+
+Broker:
+-------
+A broker serves stock quotes from its own exchange. However, if queried about a symbol that does not exist in its
+own exchange, it tries to lookup other brokers (serving other exchanges) through name server and tries to get the 
+quotes from there.
+
+Implementation details:
+-----------------------
+Naming Service
+--------------
+The Naming Service is the check-in point for all the systems that are online (OnlineBroker, BrokerClient
+and BrokerExchange). Upon registration, those servers send a LOOKUP_REGISTER request
+and only OnlineBrokers' information about name, hostname and port number is stored 
+in a hashmap for which the key is a String containing the name of the broker (ie. nasdaq
+or tse) followed by a space and then the hostname that is hosting the broker, the value
+associated with the key is of type Integer and stores the port number. 
+
+Another type of request that the Naming Service receives is LOOKUP_REQUEST, which can
+come from:
+		clients: when they are trying to set their local online broker
+		brokers: when they cannot find a quote for a client and want to forward request
+				 to another available broker
+		exchange: when they are trying to locate hostname and port information about
+				  the online broker they are trying to connect to
+
+OnlineBroker
+------------
+Initially, the online broker connects to the Naming Service by sending a packet with the
+following information: BrokerPacket.type = LOOKUP_REGISTER and BrokerPacket.exchange = 
+"Space separated string containing name of broker, hostname of broker, port number of broker"
+Upon successful registration, the Naming service sends back LOOKUP_REPLY with the same 
+exchange information to acknowledge request and confirm registration
+
+Another server socket is then opened to listen for connection from clients or exchanges.
+The handling of requests from exchanges remains the same and part 2. However, upon a client
+request for a quote, if the quote isn't found in the local broker, a LOOKUP_REQUEST is sent
+to the Naming Service for a list of available online brokers. If any broker other than the
+current broker is found, a client socket, forwardSocket is opened to forward the quote 
+request to the other broker. After the reply is received, forwardSocket is then closed. 
+
+BrokerClient and BrokerExchange
+-------------------------------
+The behaviour of these services remain the same except for the registration to the 
+NamingService that was described in the NamingService description, which is then followed
+by a request of LOOKUP_REQUEST of the broker they are trying to connect to. If the broker
+is found, connection attempt continues, otherwise the services exit. 
+
+Misc notable points:
+--------------------
+1. The text files containing the quotes are always written back when the server exits. This results 
+in the order of the contents in the files to be changed and the stock names to be converted to 
+uppercase. We thought this was not a big issue since all the programs still acts in case agnostic 
+manner as instructed.
+2. The server closes properly if closed by pressing <crtl>+c. Other methods of killing the server 
+(i.e. kill terminal command, of sending different signals) might cause unexpected behaviour.
+
